@@ -757,17 +757,11 @@ function escapeAttr(s){ return escapeHtml(s); }
 function extractMLItemId(link){
   if(!link) return null;
 
-  // Páginas de catálogo (várias lojas vendendo o mesmo produto) trazem o
-  // anúncio específico no parâmetro "wid" — é esse código que a API entende.
-  // Ex: .../p/MLB40899227?...&wid=MLB5176104148  → usa MLB5176104148
-  try{
-    const url = new URL(link);
-    const wid = url.searchParams.get('wid');
-    if(wid){
-      const widMatch = wid.match(/MLB\d+/i);
-      if(widMatch) return widMatch[0].toUpperCase();
-    }
-  }catch(e){ /* link relativo ou inválido, segue para o fallback abaixo */ }
+  // O parâmetro "wid" (anúncio específico daquela loja) pode vir depois do "?"
+  // (query string) OU depois do "#" (fragmento) — o ML usa os dois formatos.
+  // Buscamos direto por regex no texto inteiro do link, cobrindo ambos os casos.
+  const widMatch = link.match(/[?&#]wid=(MLB\d+)/i);
+  if(widMatch) return widMatch[1].toUpperCase();
 
   // Fallback: links diretos de anúncio, formato .../MLB-1234567890-titulo
   const m = link.match(/MLB-?(\d{6,})/i);
