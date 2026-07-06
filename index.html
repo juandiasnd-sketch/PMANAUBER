@@ -405,7 +405,11 @@
     </div>
     <div class="field">
       <label>Link do anúncio</label>
-      <input type="text" id="fLink" placeholder="https://...">
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="fLink" placeholder="https://..." style="flex:1;">
+        <button type="button" class="btn btn-ghost" id="btnBuscarPreco" style="white-space:nowrap;">🔎 Buscar preço</button>
+      </div>
+      <div class="sub" id="buscaPrecoStatus" style="margin-top:6px; color:var(--text-muted); font-size:12px;"></div>
     </div>
     <div class="field-row">
       <div class="field">
@@ -525,6 +529,7 @@ function openModal(item){
   document.getElementById('fPreco').value = item ? String(item.preco).replace('.',',') : '';
   document.getElementById('fCusto').value = item ? String(item.custo).replace('.',',') : '';
   document.getElementById('formError').style.display = 'none';
+  document.getElementById('buscaPrecoStatus').textContent = '';
   document.getElementById('overlay').classList.add('open');
   document.getElementById('fLoja').focus();
 }
@@ -658,6 +663,55 @@ function escapeHtml(s){
   return s.replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 function escapeAttr(s){ return escapeHtml(s); }
+
+function extractMLItemId(link){
+  if(!link) return null;
+  // Formatos comuns: .../MLB-1234567890-titulo... ou .../p/MLB12345678
+  const m = link.match(/MLB-?(\d{6,})/i);
+  return m ? ('MLB' + m[1]) : null;
+}
+
+async function buscarPrecoML(){
+  const statusEl = document.getElementById('buscaPrecoStatus');
+  const link = document.getElementById('fLink').value.trim();
+  const itemId = extractMLItemId(link);
+
+  if(!itemId){
+    statusEl.textContent = 'Não reconheci um link do Mercado Livre. Cole o link completo do anúncio.';
+    statusEl.style.color = 'var(--danger)';
+    return;
+  }
+
+  statusEl.textContent = 'Buscando preço no Mercado Livre...';
+  statusEl.style.color = 'var(--text-muted)';
+
+  try{
+    const res = await fetch(`https://api.mercadolibre.com/items/${itemId}`);
+    if(!res.ok) throw new Error('not ok');
+    const data = await res.json();
+
+    if(typeof data.price !== 'number'){
+      statusEl.textContent = 'Não encontrei o preço deste anúncio. Preencha manualmente.';
+      statusEl.style.color = 'var(--danger)';
+      return;
+    }
+
+    document.getElementById('fPreco').value = data.price.toFixed(2).replace('.', ',');
+
+    const tituloField = document.getElementById('fTitulo');
+    if(!tituloField.value.trim() && data.title){
+      tituloField.value = data.title;
+    }
+
+    statusEl.textContent = `Preço encontrado: ${fmtBRL.format(data.price)} — confira antes de salvar.`;
+    statusEl.style.color = 'var(--success)';
+  }catch(e){
+    statusEl.textContent = 'Não foi possível buscar o preço agora. Preencha manualmente.';
+    statusEl.style.color = 'var(--danger)';
+  }
+}
+
+document.getElementById('btnBuscarPreco').addEventListener('click', buscarPrecoML);
 
 document.getElementById('btnNovo').addEventListener('click', ()=>openModal(null));
 document.getElementById('btnCancelar').addEventListener('click', closeModal);
