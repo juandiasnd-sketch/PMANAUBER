@@ -776,6 +776,33 @@ function extractMLItemId(link){
   return m ? ('MLB' + m[1]) : null;
 }
 
+async function buscarItemML(itemId){
+  const apiUrl = `https://api.mercadolibre.com/items/${itemId}`;
+
+  // Tentativa 1: proxy allorigins (formato /get, mais tolerante)
+  try{
+    const proxyUrl1 = `https://api.allorigins.win/get?url=${encodeURIComponent(apiUrl)}`;
+    const res1 = await fetch(proxyUrl1);
+    if(res1.ok){
+      const wrapper = await res1.json();
+      if(wrapper && wrapper.contents){
+        return JSON.parse(wrapper.contents);
+      }
+    }
+  }catch(e){ /* tenta o próximo */ }
+
+  // Tentativa 2: proxy corsproxy.io (passthrough direto)
+  try{
+    const proxyUrl2 = `https://corsproxy.io/?url=${encodeURIComponent(apiUrl)}`;
+    const res2 = await fetch(proxyUrl2);
+    if(res2.ok){
+      return await res2.json();
+    }
+  }catch(e){ /* nenhum proxy funcionou */ }
+
+  return null;
+}
+
 async function buscarPrecoML(){
   const statusEl = document.getElementById('buscaPrecoStatus');
   const link = document.getElementById('fLink').value.trim();
@@ -791,14 +818,13 @@ async function buscarPrecoML(){
   statusEl.style.color = 'var(--text-muted)';
 
   try{
-    // A API do Mercado Livre bloqueia chamadas diretas do navegador (CORS),
-    // então passamos por um serviço intermediário gratuito que repassa a
-    // resposta com as permissões corretas.
-    const apiUrl = `https://api.mercadolibre.com/items/${itemId}`;
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`;
-    const res = await fetch(proxyUrl);
-    if(!res.ok) throw new Error('not ok');
-    const data = await res.json();
+    const data = await buscarItemML(itemId);
+
+    if(!data){
+      statusEl.textContent = 'Não foi possível buscar o preço agora (serviços indisponíveis). Preencha manualmente.';
+      statusEl.style.color = 'var(--danger)';
+      return;
+    }
 
     if(data.error || data.status === 404){
       statusEl.textContent = 'Anúncio não encontrado (pode estar pausado ou removido). Preencha manualmente.';
