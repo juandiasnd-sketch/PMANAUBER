@@ -371,6 +371,7 @@
         <tr>
           <th>Loja</th>
           <th>Produto</th>
+          <th>Status</th>
           <th>Link</th>
           <th>PMA</th>
           <th>Preço anunciado</th>
@@ -379,7 +380,6 @@
           <th>Margem (R$)</th>
           <th>Margem real</th>
           <th>Novo custo</th>
-          <th>Status</th>
           <th>Ações</th>
         </tr>
       </thead>
@@ -606,6 +606,7 @@ function render(){
     tr.innerHTML = `
       <td class="loja-name">${escapeHtml(it.loja)}</td>
       <td class="produto-cell" title="${escapeAttr(it.titulo||'')}">${escapeHtml(it.titulo||'—')}</td>
+      <td><span class="badge ${c.fora?'danger':'success'}">${c.fora?'Fora do PMA':'Dentro do PMA'}</span></td>
       <td><a class="link-pill" href="${escapeAttr(it.link)}" target="_blank" rel="noopener">Ver anúncio ↗</a></td>
       <td class="mono">${fmtBRL.format(it.pma)}</td>
       <td class="mono">${fmtBRL.format(it.preco)}</td>
@@ -614,7 +615,6 @@ function render(){
       <td class="mono">${fmtBRL.format(c.margem)}</td>
       <td class="mono">${c.margemRealPct.toFixed(1)}%</td>
       <td class="mono">${fmtBRL.format(c.novoCusto)}</td>
-      <td><span class="badge ${c.fora?'danger':'success'}">${c.fora?'Fora do PMA':'Dentro do PMA'}</span></td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" title="Editar" data-edit="${it.id}">✎</button>
@@ -757,13 +757,21 @@ function escapeAttr(s){ return escapeHtml(s); }
 function extractMLItemId(link){
   if(!link) return null;
 
-  // O parâmetro "wid" (anúncio específico daquela loja) pode vir depois do "?"
-  // (query string) OU depois do "#" (fragmento) — o ML usa os dois formatos.
-  // Buscamos direto por regex no texto inteiro do link, cobrindo ambos os casos.
+  // O código do anúncio específico daquela loja pode aparecer de formas diferentes
+  // dependendo de como o link foi copiado. Testamos os formatos mais comuns, do
+  // mais específico para o mais genérico:
+
+  // 1) parâmetro "wid=MLBxxxxx" (query string ou fragmento)
   const widMatch = link.match(/[?&#]wid=(MLB\d+)/i);
   if(widMatch) return widMatch[1].toUpperCase();
 
-  // Fallback: links diretos de anúncio, formato .../MLB-1234567890-titulo
+  // 2) parâmetro "item_id:MLBxxxxx" ou "item_id=MLBxxxxx" (comum em pdp_filters)
+  const itemIdMatch = link.match(/item_id[:=](MLB\d+)/i);
+  if(itemIdMatch) return itemIdMatch[1].toUpperCase();
+
+  // 3) fallback: links diretos de anúncio, formato .../MLB-1234567890-titulo
+  //    (atenção: em páginas de catálogo, isso pode pegar o ID do catálogo, não
+  //    do anúncio específico — por isso só usamos como último recurso)
   const m = link.match(/MLB-?(\d{6,})/i);
   return m ? ('MLB' + m[1]) : null;
 }
