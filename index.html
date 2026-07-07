@@ -372,6 +372,7 @@
           <th>Loja</th>
           <th>Produto</th>
           <th>Status</th>
+          <th>Marketplace</th>
           <th>Link</th>
           <th>PMA</th>
           <th>Preço anunciado</th>
@@ -607,6 +608,7 @@ function render(){
       <td class="loja-name">${escapeHtml(it.loja)}</td>
       <td class="produto-cell" title="${escapeAttr(it.titulo||'')}">${escapeHtml(it.titulo||'—')}</td>
       <td><span class="badge ${c.fora?'danger':'success'}">${c.fora?'Fora do PMA':'Dentro do PMA'}</span></td>
+      <td><span class="badge" style="background:var(--surface-2); color:var(--text-muted);">${escapeHtml(detectMarketplace(it.link))}</span></td>
       <td><a class="link-pill" href="${escapeAttr(it.link)}" target="_blank" rel="noopener">Ver anúncio ↗</a></td>
       <td class="mono">${fmtBRL.format(it.pma)}</td>
       <td class="mono">${fmtBRL.format(it.preco)}</td>
@@ -753,6 +755,40 @@ function escapeHtml(s){
   return s.replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 function escapeAttr(s){ return escapeHtml(s); }
+
+function detectMarketplace(link){
+  if(!link) return '—';
+  let hostname;
+  try{
+    hostname = new URL(link).hostname.toLowerCase();
+  }catch(e){
+    return '—';
+  }
+
+  const marketplaces = [
+    { match: 'mercadolivre.com.br', nome: 'Mercado Livre' },
+    { match: 'mercadolibre.com', nome: 'Mercado Livre' },
+    { match: 'shopee.com.br', nome: 'Shopee' },
+    { match: 'amazon.com.br', nome: 'Amazon' },
+    { match: 'magazineluiza.com.br', nome: 'Magalu' },
+    { match: 'magazinevoce.com.br', nome: 'Magalu' },
+    { match: 'americanas.com.br', nome: 'Americanas' },
+    { match: 'casasbahia.com.br', nome: 'Casas Bahia' },
+    { match: 'pontofrio.com.br', nome: 'Ponto Frio' },
+    { match: 'extra.com.br', nome: 'Extra' },
+    { match: 'aliexpress.com', nome: 'AliExpress' },
+    { match: 'submarino.com.br', nome: 'Submarino' },
+    { match: 'shein.com', nome: 'Shein' },
+    { match: 'kabum.com.br', nome: 'Kabum' },
+    { match: 'netshoes.com.br', nome: 'Netshoes' },
+  ];
+
+  const found = marketplaces.find(m => hostname.includes(m.match));
+  if(found) return found.nome;
+
+  // Fallback: mostra o domínio completo (ex: "minhaloja.com.br")
+  return hostname.replace(/^www\./, '');
+}
 
 function extractMLItemId(link){
   if(!link) return null;
