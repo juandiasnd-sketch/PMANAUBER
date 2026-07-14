@@ -193,6 +193,16 @@
   }
   tbody tr:last-child td{border-bottom:none;}
   tbody tr.violation{background:linear-gradient(90deg, var(--danger-soft), transparent 40%);}
+  tbody tr.penalizado{background:linear-gradient(90deg, var(--accent-soft), transparent 45%);}
+  .penalizado-tag{
+    display:inline-block;
+    color:var(--danger);
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:700;
+    font-size:10.5px;
+    letter-spacing:0.04em;
+    margin-top:4px;
+  }
   .mono{font-family:'IBM Plex Mono', monospace;}
   .loja-name{font-weight:600;}
   .produto-cell{
@@ -283,7 +293,7 @@
     text-transform:uppercase;
     letter-spacing:0.04em;
   }
-  .field input{
+  .field input, .field select{
     width:100%;
     background:var(--surface-2);
     border:1px solid var(--border);
@@ -293,7 +303,7 @@
     font-size:14px;
     font-family:'Inter', sans-serif;
   }
-  .field input:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  .field input:focus, .field select:focus{outline:2px solid var(--accent); outline-offset:1px;}
   .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;}
   .error-text{color:var(--danger); font-size:12px; margin-top:6px;}
@@ -413,6 +423,13 @@
     <div class="field">
       <label>Supervisor</label>
       <input type="text" id="fSupervisor" placeholder="Ex: João Silva">
+    </div>
+    <div class="field">
+      <label>Penalizado</label>
+      <select id="fPenalizado">
+        <option value=""></option>
+        <option value="sim">Sim</option>
+      </select>
     </div>
     <div class="field">
       <label>Título do anúncio / produto</label>
@@ -541,6 +558,7 @@ function openModal(item){
   document.getElementById('modalTitle').textContent = item ? 'Editar item' : 'Novo item';
   document.getElementById('fLoja').value = item ? item.loja : '';
   document.getElementById('fSupervisor').value = item ? (item.supervisor||'') : '';
+  document.getElementById('fPenalizado').value = item ? (item.penalizado||'') : '';
   document.getElementById('fTitulo').value = item ? (item.titulo||'') : '';
   document.getElementById('fLink').value = item ? item.link : '';
   document.getElementById('fPma').value = item ? String(item.pma).replace('.',',') : '';
@@ -558,6 +576,7 @@ function closeModal(){
 async function handleSave(){
   const loja = document.getElementById('fLoja').value.trim();
   const supervisor = document.getElementById('fSupervisor').value.trim();
+  const penalizado = document.getElementById('fPenalizado').value;
   const titulo = document.getElementById('fTitulo').value.trim();
   const link = document.getElementById('fLink').value.trim();
   const pma = parseNum(document.getElementById('fPma').value);
@@ -576,9 +595,9 @@ async function handleSave(){
 
   if(editingId){
     const idx = items.findIndex(i=>i.id===editingId);
-    if(idx>-1) items[idx] = {...items[idx], loja, supervisor, titulo, link, pma, preco, custo};
+    if(idx>-1) items[idx] = {...items[idx], loja, supervisor, penalizado, titulo, link, pma, preco, custo};
   } else {
-    items.push({ id: uid(), loja, supervisor, titulo, link, pma, preco, custo });
+    items.push({ id: uid(), loja, supervisor, penalizado, titulo, link, pma, preco, custo });
   }
   await saveItems();
   closeModal();
@@ -637,10 +656,14 @@ function render(){
     const c = calc(it);
     const tr = document.createElement('tr');
     if(c.fora) tr.classList.add('violation');
+    if(it.penalizado === 'sim') tr.classList.add('penalizado');
     tr.innerHTML = `
       <td class="loja-name">${escapeHtml(it.loja)}</td>
       <td class="produto-cell" title="${escapeAttr(it.titulo||'')}">${escapeHtml(it.titulo||'—')}</td>
-      <td><span class="badge ${c.fora?'danger':'success'}">${c.fora?'Fora do PMA':'Dentro do PMA'}</span></td>
+      <td>
+        <span class="badge ${c.fora?'danger':'success'}">${c.fora?'Fora do PMA':'Dentro do PMA'}</span>
+        ${it.penalizado==='sim' ? '<div class="penalizado-tag">⚠ PENALIZADO</div>' : ''}
+      </td>
       <td><span class="badge" style="background:var(--surface-2); color:var(--text-muted);">${escapeHtml(detectMarketplace(it.link))}</span></td>
       <td>${escapeHtml(it.supervisor || '—')}</td>
       <td><a class="link-pill" href="${escapeAttr(it.link)}" target="_blank" rel="noopener">Ver anúncio ↗</a></td>
