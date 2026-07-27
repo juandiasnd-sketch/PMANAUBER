@@ -353,6 +353,11 @@
       <div class="sub" id="cardForaSub"></div>
     </div>
     <div class="card">
+      <div class="label">Total penalizados</div>
+      <div class="value" id="cardPenalizados" style="color:var(--accent);">—</div>
+      <div class="sub" id="cardPenalizadosSub"></div>
+    </div>
+    <div class="card">
       <div class="label">Loja mais crítica</div>
       <div class="value" id="cardLoja" style="font-size:18px;">—</div>
       <div class="sub" id="cardLojaSub"></div>
@@ -800,6 +805,12 @@ function renderCards(){
   document.getElementById('cardFora').textContent = foraItems.length;
   document.getElementById('cardForaSub').textContent = items.length
     ? Math.round((foraItems.length/items.length)*100) + '% dos itens'
+    : '';
+
+  const penalizadosItems = items.filter(i=>i.penalizado === 'sim');
+  document.getElementById('cardPenalizados').textContent = penalizadosItems.length;
+  document.getElementById('cardPenalizadosSub').textContent = items.length
+    ? Math.round((penalizadosItems.length/items.length)*100) + '% dos itens'
     : '';
 
   if(foraItems.length){
