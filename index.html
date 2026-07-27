@@ -378,6 +378,11 @@
     <select id="filterSupervisor">
       <option value="todos">Todos os supervisores</option>
     </select>
+    <select id="filterPenalizado">
+      <option value="todos">Todos (penalizado)</option>
+      <option value="sim">Só penalizados</option>
+      <option value="nao">Só não penalizados</option>
+    </select>
     <div class="spacer"></div>
     <button class="btn btn-ghost" id="btnRelatorio" title="Gera um PDF com os itens filtrados abaixo">📄 Gerar relatório PDF</button>
     <button class="btn btn-ghost" id="btnAtualizar" title="Buscar itens adicionados por outras pessoas">↻ Atualizar</button>
@@ -619,13 +624,16 @@ function getFilteredItems(){
   const search = document.getElementById('searchInput').value.trim().toLowerCase();
   const filter = document.getElementById('filterStatus').value;
   const supervisorFiltro = document.getElementById('filterSupervisor').value;
+  const penalizadoFiltro = document.getElementById('filterPenalizado').value;
 
   return items.filter(it=>{
     const matchesSearch = !search || it.loja.toLowerCase().includes(search) || (it.titulo||'').toLowerCase().includes(search);
     const c = calc(it);
     const matchesFilter = filter==='todos' || (filter==='fora' && c.fora) || (filter==='dentro' && !c.fora);
     const matchesSupervisor = supervisorFiltro==='todos' || (it.supervisor||'') === supervisorFiltro;
-    return matchesSearch && matchesFilter && matchesSupervisor;
+    const isPenalizado = it.penalizado === 'sim';
+    const matchesPenalizado = penalizadoFiltro==='todos' || (penalizadoFiltro==='sim' && isPenalizado) || (penalizadoFiltro==='nao' && !isPenalizado);
+    return matchesSearch && matchesFilter && matchesSupervisor && matchesPenalizado;
   });
 }
 
@@ -722,6 +730,8 @@ function gerarRelatorioPDF(){
   const filtroStatusTexto = filterStatus==='fora' ? 'Fora do PMA' : filterStatus==='dentro' ? 'Dentro do PMA' : 'Todos os status';
   const filterSupervisor = document.getElementById('filterSupervisor').value;
   const filtroSupervisorTexto = filterSupervisor==='todos' ? 'Todos' : filterSupervisor;
+  const filterPenalizado = document.getElementById('filterPenalizado').value;
+  const filtroPenalizadoTexto = filterPenalizado==='sim' ? 'Só penalizados' : filterPenalizado==='nao' ? 'Só não penalizados' : 'Todos';
 
   function novaLinha(altura){
     if(y + altura > pageHeight - 40){
@@ -738,7 +748,7 @@ function gerarRelatorioPDF(){
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.setTextColor(100);
-  doc.text(`Filtro de busca: ${searchTerm || '(nenhum)'}   •   Status: ${filtroStatusTexto}   •   Supervisor: ${filtroSupervisorTexto}`, marginX, y);
+  doc.text(`Filtro de busca: ${searchTerm || '(nenhum)'}   •   Status: ${filtroStatusTexto}   •   Supervisor: ${filtroSupervisorTexto}   •   Penalizado: ${filtroPenalizadoTexto}`, marginX, y);
   y += 13;
   doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}   •   ${filtered.length} item(ns)`, marginX, y);
   doc.setTextColor(0);
@@ -972,6 +982,7 @@ document.getElementById('overlay').addEventListener('click', (e)=>{ if(e.target.
 document.getElementById('searchInput').addEventListener('input', render);
 document.getElementById('filterStatus').addEventListener('change', render);
 document.getElementById('filterSupervisor').addEventListener('change', render);
+document.getElementById('filterPenalizado').addEventListener('change', render);
 
 loadItems();
 </script>
