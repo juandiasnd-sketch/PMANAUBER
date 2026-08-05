@@ -334,7 +334,17 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<div id="loginGate" style="position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:100; padding:20px;">
+  <div style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); width:100%; max-width:360px; padding:32px;">
+    <h2 style="font-family:'Space Grotesk', sans-serif; font-size:19px; margin:0 0 6px;">Acesso ao painel</h2>
+    <p style="color:var(--text-muted); font-size:13px; margin:0 0 20px;">Digite a senha para acessar o painel de conformidade de preços.</p>
+    <input type="password" id="loginPassword" placeholder="Senha" style="width:100%; background:var(--surface-2); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; font-family:'Inter', sans-serif; box-sizing:border-box; margin-bottom:10px;">
+    <div id="loginError" style="color:var(--danger); font-size:12px; margin-bottom:10px; display:none;">Senha incorreta. Tente novamente.</div>
+    <button class="btn" id="btnLogin" style="width:100%;">Entrar</button>
+  </div>
+</div>
+
+<div class="wrap" id="mainApp" style="display:none;">
 
   <div class="header">
     <div>
@@ -492,6 +502,9 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import {
   getFirestore, doc, getDoc, setDoc, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  getAuth, signInAnonymously, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB0hoIb9t4A1KZd_nltTH6TGEGfDmPV6-0",
@@ -502,8 +515,18 @@ const firebaseConfig = {
   appId: "1:486041046020:web:2facbe65168162db5e7951"
 };
 
+// ======================================================
+// SENHA DE ACESSO AO PAINEL
+// Troque o texto abaixo pela senha que quiser usar.
+// Atenção: por ser um site estático, essa senha fica visível
+// para quem souber olhar o código-fonte da página — ela serve
+// para afastar acesso casual, não é uma proteção inquebrável.
+// ======================================================
+const SENHA_PAINEL = "pma2026";
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app);
 const itemsDocRef = doc(db, "pma", "items");
 
 let items = [];
@@ -997,7 +1020,41 @@ document.getElementById('filterStatus').addEventListener('change', render);
 document.getElementById('filterSupervisor').addEventListener('change', render);
 document.getElementById('filterPenalizado').addEventListener('change', render);
 
-loadItems();
+function mostrarApp(){
+  document.getElementById('loginGate').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'block';
+  loadItems();
+}
+
+async function tentarLogin(){
+  const senhaDigitada = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+
+  if(senhaDigitada !== SENHA_PAINEL){
+    errEl.style.display = 'block';
+    return;
+  }
+
+  errEl.style.display = 'none';
+  try{
+    await signInAnonymously(auth);
+    // onAuthStateChanged (abaixo) cuida de mostrar o app assim que o login for confirmado
+  }catch(e){
+    errEl.textContent = 'Não foi possível entrar agora. Verifique sua conexão e tente de novo.';
+    errEl.style.display = 'block';
+  }
+}
+
+document.getElementById('btnLogin').addEventListener('click', tentarLogin);
+document.getElementById('loginPassword').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') tentarLogin();
+});
+
+onAuthStateChanged(auth, (user)=>{
+  if(user){
+    mostrarApp();
+  }
+});
 </script>
 </body>
 </html>
