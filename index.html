@@ -400,6 +400,7 @@
       <option value="sim">Só penalizados</option>
       <option value="nao">Só não penalizados</option>
     </select>
+    <button class="btn btn-ghost" id="btnOrdenarLoja" title="Ordena a lista pelo nome da loja">⇅ Loja (A→Z)</button>
     <div class="spacer"></div>
     <button class="btn btn-ghost" id="btnRelatorio" title="Gera um PDF com os itens filtrados abaixo">📄 Gerar relatório PDF</button>
     <button class="btn btn-ghost" id="btnAtualizar" title="Buscar itens adicionados por outras pessoas">↻ Atualizar</button>
@@ -650,13 +651,15 @@ async function handleDelete(id){
   showToast('Item excluído.');
 }
 
+let ordenarLojaDirecao = null; // null = sem ordenação | 'asc' | 'desc'
+
 function getFilteredItems(){
   const search = document.getElementById('searchInput').value.trim().toLowerCase();
   const filter = document.getElementById('filterStatus').value;
   const supervisorFiltro = document.getElementById('filterSupervisor').value;
   const penalizadoFiltro = document.getElementById('filterPenalizado').value;
 
-  return items.filter(it=>{
+  const resultado = items.filter(it=>{
     const matchesSearch = !search || it.loja.toLowerCase().includes(search) || (it.titulo||'').toLowerCase().includes(search);
     const c = calc(it);
     const matchesFilter = filter==='todos' || (filter==='fora' && c.fora) || (filter==='dentro' && !c.fora);
@@ -665,6 +668,26 @@ function getFilteredItems(){
     const matchesPenalizado = penalizadoFiltro==='todos' || (penalizadoFiltro==='sim' && isPenalizado) || (penalizadoFiltro==='nao' && !isPenalizado);
     return matchesSearch && matchesFilter && matchesSupervisor && matchesPenalizado;
   });
+
+  if(ordenarLojaDirecao){
+    resultado.sort((a,b)=>{
+      const cmp = a.loja.localeCompare(b.loja, 'pt-BR', { sensitivity: 'base' });
+      return ordenarLojaDirecao === 'asc' ? cmp : -cmp;
+    });
+  }
+
+  return resultado;
+}
+
+function alternarOrdenacaoLoja(){
+  if(ordenarLojaDirecao === 'asc'){
+    ordenarLojaDirecao = 'desc';
+  } else {
+    ordenarLojaDirecao = 'asc';
+  }
+  const btn = document.getElementById('btnOrdenarLoja');
+  btn.textContent = ordenarLojaDirecao === 'asc' ? '⇅ Loja (A→Z)' : '⇅ Loja (Z→A)';
+  render();
 }
 
 function atualizarOpcoesSupervisor(){
@@ -1019,6 +1042,7 @@ document.getElementById('searchInput').addEventListener('input', render);
 document.getElementById('filterStatus').addEventListener('change', render);
 document.getElementById('filterSupervisor').addEventListener('change', render);
 document.getElementById('filterPenalizado').addEventListener('change', render);
+document.getElementById('btnOrdenarLoja').addEventListener('click', alternarOrdenacaoLoja);
 
 function mostrarApp(){
   document.getElementById('loginGate').style.display = 'none';
