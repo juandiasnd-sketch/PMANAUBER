@@ -791,6 +791,7 @@ function definirCustoSimulacao(productId, custo){
   if (!state.simCostOverrides) state.simCostOverrides = {};
   if (custo == null) delete state.simCostOverrides[String(productId)];
   else state.simCostOverrides[String(productId)] = custo;
+  try { localStorage.setItem('calc-precos:state', JSON.stringify(state)); } catch(e) {}
 }
 function renderSimulation(){
   readParams();
@@ -842,6 +843,12 @@ function renderSimulation(){
       <span class="name">${product.id} — ${product.desc || '(sem descrição)'}</span>
       <span class="cost">valor anunciado R$ ${fmt(valor)}</span>
     </div>
+    <div style="margin:12px 0 16px;padding:14px 16px;border:2px solid #2f855a;border-radius:12px;background:#f0faf3;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <label for="sim-custo-manual" style="font-weight:700;min-width:180px">✏️ Custo do produto (R$)<small style="display:block;font-weight:400;margin-top:4px">Clique no valor para editar</small></label>
+      <input id="sim-custo-manual" type="text" inputmode="decimal" aria-label="Editar custo do produto na simulação" style="width:180px;max-width:100%;padding:11px 12px;border:2px solid #2f855a;border-radius:9px;font-size:18px;font-weight:700;background:white;color:#163b27" value="${Number.isFinite(custo) ? fmt(custo) : ''}" placeholder="Digite o custo">
+      <button type="button" id="sim-custo-restaurar" style="padding:9px 12px;border-radius:8px;cursor:pointer">Restaurar custo calculado</button>
+      <small style="width:100%;color:#375a42">O custo informado vale para todas as plataformas e será usado no histórico quando salvar a simulação.</small>
+    </div>
     <div style="margin:12px 0 16px;padding:12px 14px;border:1px solid #dbe8de;border-radius:12px;background:#f7fbf8">
       <strong style="display:block;margin-bottom:8px">Plataformas utilizadas neste produto</strong>
       <div style="display:flex;flex-wrap:wrap;gap:12px 22px">${state.platforms.map(pl => `<label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" data-sim-platform="${pl.id}" ${platformEnabled(product.id,pl.id)?'checked':''}> ${pl.nome}</label>`).join('')}</div>
@@ -861,6 +868,20 @@ function renderSimulation(){
     <p style="font-size:12px;color:var(--ink-soft);margin:10px 0 0;">Informe a tarifa de venda do marketplace na coluna Retenção e o envio em Frete. A Comissão é calculada automaticamente: com Retenção maior que zero, exibe a tarifa informada e seu percentual efetivo; com Retenção zerada, usa o percentual padrão da plataforma. A tarifa nunca é descontada duas vezes. O preço sugerido considera custo, tarifa, frete, crédito, despesas operacionais e margem desejada. Não inclui tributos ou tarifas fixas não informados.</p>
   `;
 
+  const custoPrincipal = document.getElementById('sim-custo-manual');
+  function atualizarCustoEmTodasPlataformas(){
+    const valorAtual = parseNumberInput(document.getElementById('sim-valor').value) || 0;
+    state.platforms.filter(p => platformEnabled(product.id, p.id)).forEach(p => updateSimRow(product, p, valorAtual));
+  }
+  custoPrincipal.addEventListener('input', () => {
+    const n = parseNumberInput(custoPrincipal.value);
+    definirCustoSimulacao(product.id, Number.isFinite(n) && n >= 0 ? n : null);
+    atualizarCustoEmTodasPlataformas();
+  });
+  document.getElementById('sim-custo-restaurar').addEventListener('click', () => {
+    definirCustoSimulacao(product.id, null);
+    renderSimulation();
+  });
   container.querySelectorAll('[data-sim-platform]').forEach(inp => inp.addEventListener('change', () => {
     setPlatformEnabled(product.id, inp.dataset.simPlatform, inp.checked);
     renderSimulation();
@@ -873,6 +894,7 @@ function renderSimulation(){
         if (field === 'custo') {
           const valorManual = parseNumberInput(inp.value);
           definirCustoSimulacao(product.id, Number.isFinite(valorManual) && valorManual >= 0 ? valorManual : null);
+          if (document.activeElement !== custoPrincipal) custoPrincipal.value = Number.isFinite(custoSimulacao(product)) ? fmt(custoSimulacao(product)) : '';
           state.platforms.filter(p => platformEnabled(product.id, p.id)).forEach(p => updateSimRow(product, p, parseNumberInput(document.getElementById('sim-valor').value) || 0));
           return;
         }
