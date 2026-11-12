@@ -452,7 +452,6 @@
           <th>PMA</th>
           <th>Preço anunciado</th>
           <th>% fora do PMA</th>
-          <th>Custo</th>
           <th>Margem (R$)</th>
           <th>Margem real</th>
           <th>Novo custo</th>
@@ -764,7 +763,6 @@ function render(){
       <td class="mono">${fmtBRL.format(it.pma)}</td>
       <td class="mono">${fmtBRL.format(it.preco)}</td>
       <td class="mono pct ${c.fora?'danger':'success'}">${fmtPct(c.pctForaPMA)}</td>
-      <td class="mono">${fmtBRL.format(it.custo)}</td>
       <td class="mono">${fmtBRL.format(c.margem)}</td>
       <td class="mono">${c.margemRealPct.toFixed(1)}%</td>
       <td class="mono">${fmtBRL.format(c.novoCusto)}</td>
