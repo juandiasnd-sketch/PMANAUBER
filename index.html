@@ -456,10 +456,12 @@
 
   <section class="serp-panel" aria-label="Pesquisa de anúncios na internet">
     <h3>🌐 Buscar anúncios na internet — SerpAPI</h3>
-    <p class="lookup-description">Pesquisa manual no Google Shopping. Cada consulta pode consumir uma pesquisa da sua cota gratuita. Resultados são sugestões externas, não registros do PMA.</p>
+    <p class="lookup-description">Pesquise por termo ou utilize os produtos já cadastrados no PMA. A busca por lote elimina produtos repetidos e anúncios duplicados. Cada produto consultado pode consumir uma pesquisa da cota SerpAPI.</p>
     <div class="serp-controls">
       <input id="serpTermo" type="search" maxlength="160" placeholder="Ex.: código, marca e modelo do produto" aria-label="Produto para pesquisar na internet">
       <button class="btn" id="serpBuscar" type="button">Buscar anúncios</button>
+      <select id="serpLimite" aria-label="Quantidade máxima de produtos do PMA" style="padding:10px;border:1px solid var(--border);border-radius:8px"><option value="3">3 produtos do PMA</option><option value="5">5 produtos do PMA</option><option value="10">10 produtos do PMA</option></select>
+      <button class="btn btn-ghost" id="serpBuscarPMA" type="button">Buscar produtos cadastrados</button>
     </div>
     <div id="serpStatus" class="serp-muted" role="status" aria-live="polite">Configure o endereço do Worker no código antes de usar.</div>
     <div id="serpResultados" class="serp-results"></div>
@@ -1212,72 +1214,115 @@ async function buscarPrecoML(){
 // A chave secreta SerpAPI deve ficar APENAS no Worker, nunca neste HTML.
 const SERPAPI_WORKER_URL = 'https://pma-serpapi.juandiasnd.workers.dev';
 let serpBuscando = false;
+const serpJaPesquisados = new Set();
+const serpAnunciosExibidos = new Set();
 function serpWorkerConfigurado(){ return /^https:\/\/[^/\s]+\.workers\.dev\/?$/i.test(SERPAPI_WORKER_URL); }
+function serpNormalizar(texto){return String(texto||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');}
 function serpPreco(valor){
-  if(typeof valor === 'number' && Number.isFinite(valor)) return valor;
-  if(typeof valor !== 'string') return NaN;
+  if(typeof valor==='number' && Number.isFinite(valor)) return valor;
+  if(typeof valor!=='string')return NaN;
   const str=valor.replace(/[^\d.,]/g,'');
-  if(!str) return NaN;
-  if(str.includes(',') && str.includes('.')) return Number(str.replace(/\./g,'').replace(',','.'));
-  if(str.includes(',')) return Number(str.replace(',','.'));
+  if(!str)return NaN;
+  if(str.includes(',')&&str.includes('.'))return Number(str.replace(/\./g,'').replace(',','.'));
+  if(str.includes(','))return Number(str.replace(',','.'));
   return Number(str);
 }
-function serpDomLink(link){
-  try{const u=new URL(link);return ['https:','http:'].includes(u.protocol) ? u.href : null;}catch(e){return null;}
+function serpDomLink(link){try{const u=new URL(link);return ['https:','http:'].includes(u.protocol)?u.href:null;}catch(e){return null;}}
+function serpIdentidadeAnuncio(anuncio){
+  // Título + vendedor: o mesmo produto na mesma loja não aparece duas vezes.
+  const titulo=serpNormalizar(anuncio.titulo||anuncio.title);
+  const loja=serpNormalizar(anuncio.loja||anuncio.source);
+  const id=String(anuncio.id||'').trim();
+  return titulo&&loja ? 'produto:'+titulo+'|'+loja : id ? 'id:'+id : 'link:'+String(anuncio.link||'');
+}
+function serpProdutosPMA(){
+  const vistos=new Set();const produtos=[];
+  for(const item of items){
+    const titulo=String(item.titulo||'').trim();
+    const chave=serpNormalizar(titulo);
+    if(chave.length<4||vistos.has(chave))continue;
+    vistos.add(chave);
+    produtos.push({titulo, chave});
+  }
+  return produtos;
+}
+async function serpConsultar(termo){
+  const endpoint=new URL(SERPAPI_WORKER_URL.replace(/\/$/,'')+'/buscar');
+  endpoint.searchParams.set('q',termo);
+  const res=await fetch(endpoint.toString(),{method:'GET',headers:{Accept:'application/json'}});
+  const data=await res.json().catch(()=>({erro:'Resposta inválida do servidor.'}));
+  if(!res.ok||data.erro||data.error)throw new Error(data.erro||data.error||('Erro HTTP '+res.status));
+  if(!data.sucesso)throw new Error('O Worker não retornou sucesso.');
+  return Array.isArray(data.anuncios)?data.anuncios:[];
+}
+function serpExibirAnuncio(anuncio){
+  const link=serpDomLink(anuncio.link);
+  if(!link)return false;
+  if(encontrarAnuncios(link).length)return false; // não repetir anúncios já cadastrados
+  const chave=serpIdentidadeAnuncio(anuncio);
+  if(serpAnunciosExibidos.has(chave))return false;
+  serpAnunciosExibidos.add(chave);
+  const card=document.createElement('article');card.className='serp-item';
+  if(anuncio.imagem&&/^https:\/\//i.test(anuncio.imagem)){
+    const img=document.createElement('img');img.src=anuncio.imagem;img.alt='Imagem do anúncio';img.loading='lazy';img.referrerPolicy='no-referrer';card.append(img);
+  }
+  const titulo=document.createElement('div');titulo.className='serp-title';titulo.textContent=anuncio.titulo||'Produto sem título';card.append(titulo);
+  const loja=document.createElement('div');loja.className='serp-muted';loja.textContent=anuncio.loja||detectMarketplace(link);card.append(loja);
+  const preco=document.createElement('div');preco.className='serp-price';const valor=serpPreco(anuncio.preco??anuncio.preco_formatado);preco.textContent=Number.isFinite(valor)?fmtBRL.format(valor):(anuncio.preco_formatado||'Preço não disponível');card.append(preco);
+  const situacao=document.createElement('div');situacao.className='serp-muted';situacao.textContent='🟡 Anúncio não cadastrado no PMA';card.append(situacao);
+  const actions=document.createElement('div');actions.className='serp-actions';
+  const abrir=document.createElement('a');abrir.href=link;abrir.target='_blank';abrir.rel='noopener noreferrer';abrir.textContent='Ver anúncio';actions.append(abrir);
+  const cadastrar=document.createElement('button');cadastrar.className='btn';cadastrar.type='button';cadastrar.textContent='+ Mapear';
+  cadastrar.addEventListener('click',()=>{
+    if(encontrarAnuncios(link).length){showToast('Este anúncio já está cadastrado no PMA.');return;}
+    openModal(null);
+    document.getElementById('fLink').value=link;
+    document.getElementById('fTitulo').value=anuncio.titulo||'';
+    document.getElementById('fLoja').value=anuncio.loja||'';
+    if(Number.isFinite(valor))document.getElementById('fPreco').value=valor.toFixed(2).replace('.',',');
+  });actions.append(cadastrar);
+  card.append(actions);document.getElementById('serpResultados').append(card);return true;
+}
+async function serpExecutar(termos){
+  if(serpBuscando)return;
+  if(!serpWorkerConfigurado()){document.getElementById('serpStatus').textContent='Endereço do Worker inválido.';return;}
+  serpBuscando=true;
+  const status=document.getElementById('serpStatus');
+  const grid=document.getElementById('serpResultados');
+  const botoes=[document.getElementById('serpBuscar'),document.getElementById('serpBuscarPMA')];
+  botoes.forEach(b=>b.disabled=true);grid.replaceChildren();serpAnunciosExibidos.clear();
+  let consultas=0, encontrados=0, erros=[];
+  try{
+    for(const termo of termos){
+      status.textContent=`Pesquisando ${consultas+1} de ${termos.length}: ${termo}...`;
+      try{
+        const anuncios=await serpConsultar(termo);
+        consultas++;
+        serpJaPesquisados.add(serpNormalizar(termo));
+        for(const anuncio of anuncios){if(serpExibirAnuncio(anuncio))encontrados++;}
+      }catch(e){erros.push(`${termo}: ${e.message||'falha'}`);break;}
+    }
+    status.textContent=`${consultas} pesquisa(s) realizada(s); ${encontrados} anúncio(s) novo(s), sem duplicatas ou anúncios já cadastrados.`+(erros.length?' Erro: '+erros[0]:'');
+    if(!encontrados&&!erros.length)status.textContent+=' Tente pesquisar pelo código ou descrição exata do produto.';
+  }finally{serpBuscando=false;botoes.forEach(b=>b.disabled=false);}
 }
 async function pesquisarSerpAPI(){
   const termo=document.getElementById('serpTermo').value.trim();
-  const status=document.getElementById('serpStatus');
-  const grid=document.getElementById('serpResultados');
-  if(serpBuscando) return;
-  if(termo.length<3){status.textContent='Digite pelo menos 3 caracteres para pesquisar.';return;}
-  if(!serpWorkerConfigurado()){status.textContent='Falta configurar SERPAPI_WORKER_URL com o endereço do Worker publicado.';return;}
-  serpBuscando=true;
-  const btn=document.getElementById('serpBuscar');btn.disabled=true;
-  grid.replaceChildren();status.textContent='Pesquisando anúncios no Google Shopping...';
-  try{
-    const endpoint=new URL(SERPAPI_WORKER_URL);
-    endpoint.searchParams.set('q',termo);
-    const res=await fetch(endpoint.toString(),{method:'GET',headers:{'Accept':'application/json'}});
-    const data=await res.json().catch(()=>({error:'Resposta inválida do servidor.'}));
-    if(!res.ok) throw new Error(data.error||('Erro HTTP '+res.status));
-    const anuncios=Array.isArray(data.results)?data.results:[];
-    status.textContent=anuncios.length+' anúncio(s) encontrado(s). Confira preço, disponibilidade e vendedor antes de cadastrar.';
-    if(!anuncios.length) return;
-    for(const anuncio of anuncios){
-      const link=serpDomLink(anuncio.link);
-      if(!link) continue;
-      const jaMapeados=encontrarAnuncios(link);
-      const card=document.createElement('article');card.className='serp-item';
-      if(anuncio.thumbnail && /^https:\/\//i.test(anuncio.thumbnail)){
-        const img=document.createElement('img');img.src=anuncio.thumbnail;img.alt='Imagem do anúncio';img.loading='lazy';img.referrerPolicy='no-referrer';card.append(img);
-      }
-      const titulo=document.createElement('div');titulo.className='serp-title';titulo.textContent=anuncio.title||'Produto sem título';card.append(titulo);
-      const loja=document.createElement('div');loja.className='serp-muted';loja.textContent=(anuncio.source||detectMarketplace(link))+' · '+detectMarketplace(link);card.append(loja);
-      const preco=document.createElement('div');preco.className='serp-price';const valor=serpPreco(anuncio.priceValue ?? anuncio.price);preco.textContent=Number.isFinite(valor)?fmtBRL.format(valor):(anuncio.price||'Preço não disponível');card.append(preco);
-      const situacao=document.createElement('div');situacao.className='serp-muted';situacao.textContent=jaMapeados.length ? '🟢 Já mapeado: '+jaMapeados.map(x=>x.loja||'Loja').join(', ') : '🟡 Não localizado no PMA';card.append(situacao);
-      const actions=document.createElement('div');actions.className='serp-actions';
-      const abrir=document.createElement('a');abrir.href=link;abrir.target='_blank';abrir.rel='noopener noreferrer';abrir.textContent='Ver anúncio';actions.append(abrir);
-      if(!jaMapeados.length){
-        const cadastrar=document.createElement('button');cadastrar.className='btn';cadastrar.type='button';cadastrar.textContent='+ Mapear';
-        cadastrar.addEventListener('click',()=>{
-          openModal(null);
-          document.getElementById('fLink').value=link;
-          document.getElementById('fTitulo').value=anuncio.title||'';
-          document.getElementById('fLoja').value=anuncio.source||'';
-          if(Number.isFinite(valor))document.getElementById('fPreco').value=valor.toFixed(2).replace('.',',');
-        });actions.append(cadastrar);
-      }else{
-        const editar=document.createElement('button');editar.className='btn btn-ghost';editar.type='button';editar.textContent='Ver mapeamento';
-        editar.addEventListener('click',()=>{document.getElementById('lookupLink').value=link;mostrarConsultaLink();document.getElementById('lookupLink').scrollIntoView({behavior:'smooth',block:'center'});});actions.append(editar);
-      }
-      card.append(actions);grid.append(card);
-    }
-  }catch(e){status.textContent='Falha na pesquisa: '+(e.message||'erro desconhecido')+'. Confira o Worker e a cota SerpAPI.';}
-  finally{serpBuscando=false;btn.disabled=false;}
+  if(termo.length<3){document.getElementById('serpStatus').textContent='Digite pelo menos 3 caracteres.';return;}
+  await serpExecutar([termo]);
+}
+async function pesquisarProdutosPMA(){
+  const limite=Number(document.getElementById('serpLimite').value)||3;
+  const produtos=serpProdutosPMA();
+  const pendentes=produtos.filter(p=>!serpJaPesquisados.has(p.chave)).slice(0,limite);
+  if(!produtos.length){document.getElementById('serpStatus').textContent='Não há produtos com título cadastrado no PMA. Preencha o título dos itens para pesquisar.';return;}
+  if(!pendentes.length){document.getElementById('serpStatus').textContent='Todos os produtos disponíveis já foram pesquisados nesta sessão. Atualize a página para pesquisar novamente.';return;}
+  await serpExecutar(pendentes.map(p=>p.titulo));
 }
 document.getElementById('serpBuscar').addEventListener('click',pesquisarSerpAPI);
+document.getElementById('serpBuscarPMA').addEventListener('click',pesquisarProdutosPMA);
 document.getElementById('serpTermo').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();pesquisarSerpAPI();}});
+document.getElementById('serpStatus').textContent='Pronto. Pesquise um produto ou busque até 3 produtos cadastrados no PMA.';
 
 document.getElementById('btnBuscarPreco').addEventListener('click', buscarPrecoML);
 document.getElementById('btnConsultarLink').addEventListener('click', mostrarConsultaLink);
