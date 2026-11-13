@@ -412,7 +412,7 @@
       <div class="sub" id="cardSupervisorSub"></div>
     </div>
     <div class="card">
-      <div class="label">Margem real média</div>
+      <div class="label">Desvio médio abaixo do PMA</div>
       <div class="value" id="cardMargem">—</div>
     </div>
   </div>
@@ -452,9 +452,6 @@
           <th>PMA</th>
           <th>Preço anunciado</th>
           <th>% fora do PMA</th>
-          <th>Margem (R$)</th>
-          <th>Margem real</th>
-          <th>Novo custo</th>
           <th>Ações</th>
         </tr>
       </thead>
@@ -507,10 +504,6 @@
         <label>Preço anunciado (R$)</label>
         <input type="text" id="fPreco" inputmode="decimal" placeholder="0,00">
       </div>
-    </div>
-    <div class="field">
-      <label>Custo do produto (R$)</label>
-      <input type="text" id="fCusto" inputmode="decimal" placeholder="0,00">
     </div>
     <div class="error-text" id="formError" style="display:none;"></div>
     <div class="modal-actions">
@@ -575,12 +568,8 @@ function uid(){ return 'i_' + Date.now().toString(36) + '_' + Math.random().toSt
 
 function calc(item){
   const pctForaPMA = item.pma > 0 ? ((item.pma - item.preco) / item.pma) * 100 : 0;
-  const margem = item.preco - item.custo;
-  const margemRealPct = item.custo > 0 ? ((item.preco - item.custo) / item.custo) * 100 : 0;
-  const divisor = 1 + (margemRealPct/100);
-  const novoCusto = divisor !== 0 ? item.pma / divisor : 0;
   const fora = item.preco < item.pma;
-  return { pctForaPMA, margem, margemRealPct, novoCusto, fora };
+  return { pctForaPMA, fora };
 }
 
 async function fetchLatestItems(){
@@ -631,7 +620,6 @@ function openModal(item){
   document.getElementById('fLink').value = item ? item.link : '';
   document.getElementById('fPma').value = item ? String(item.pma).replace('.',',') : '';
   document.getElementById('fPreco').value = item ? String(item.preco).replace('.',',') : '';
-  document.getElementById('fCusto').value = item ? String(item.custo).replace('.',',') : '';
   document.getElementById('formError').style.display = 'none';
   document.getElementById('buscaPrecoStatus').textContent = '';
   document.getElementById('overlay').classList.add('open');
@@ -649,10 +637,9 @@ async function handleSave(){
   const link = document.getElementById('fLink').value.trim();
   const pma = parseNum(document.getElementById('fPma').value);
   const preco = parseNum(document.getElementById('fPreco').value);
-  const custo = parseNum(document.getElementById('fCusto').value);
   const errEl = document.getElementById('formError');
 
-  if(!loja || !link || isNaN(pma) || isNaN(preco) || isNaN(custo) || pma<=0 || preco<=0 || custo<0){
+  if(!loja || !link || isNaN(pma) || isNaN(preco) || pma<=0 || preco<=0){
     errEl.textContent = 'Preencha loja, link e valores numéricos válidos (use vírgula, ex: 199,90).';
     errEl.style.display = 'block';
     return;
@@ -663,9 +650,9 @@ async function handleSave(){
 
   if(editingId){
     const idx = items.findIndex(i=>i.id===editingId);
-    if(idx>-1) items[idx] = {...items[idx], loja, supervisor, penalizado, titulo, link, pma, preco, custo};
+    if(idx>-1) items[idx] = {...items[idx], loja, supervisor, penalizado, titulo, link, pma, preco};
   } else {
-    items.push({ id: uid(), loja, supervisor, penalizado, titulo, link, pma, preco, custo });
+    items.push({ id: uid(), loja, supervisor, penalizado, titulo, link, pma, preco });
   }
   await saveItems();
   closeModal();
@@ -763,9 +750,6 @@ function render(){
       <td class="mono">${fmtBRL.format(it.pma)}</td>
       <td class="mono">${fmtBRL.format(it.preco)}</td>
       <td class="mono pct ${c.fora?'danger':'success'}">${fmtPct(c.pctForaPMA)}</td>
-      <td class="mono">${fmtBRL.format(c.margem)}</td>
-      <td class="mono">${c.margemRealPct.toFixed(1)}%</td>
-      <td class="mono">${fmtBRL.format(c.novoCusto)}</td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" title="Editar" data-edit="${it.id}">✎</button>
@@ -915,7 +899,8 @@ function renderCards(){
   }
 
   if(items.length){
-    const avg = items.reduce((s,i)=>s+calc(i).margemRealPct,0)/items.length;
+    const violacoes = items.filter(i=>calc(i).fora);
+    const avg = violacoes.length ? violacoes.reduce((s,i)=>s+calc(i).pctForaPMA,0)/violacoes.length : 0;
     document.getElementById('cardMargem').textContent = avg.toFixed(1) + '%';
   } else {
     document.getElementById('cardMargem').textContent = '—';
