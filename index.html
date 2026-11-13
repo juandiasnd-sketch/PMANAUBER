@@ -370,6 +370,19 @@
     .field-row{grid-template-columns:1fr;}
     .header{flex-direction:column;}
   }
+
+  .serp-panel{margin:18px 0;padding:20px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  .serp-panel h3{margin:0 0 7px;font-size:18px}
+  .serp-controls{display:flex;gap:9px;flex-wrap:wrap;margin:12px 0}
+  .serp-controls input{flex:1;min-width:230px;padding:11px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text)}
+  .serp-results{display:grid;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:12px;margin-top:12px}
+  .serp-item{border:1px solid var(--border);border-radius:10px;padding:13px;display:flex;flex-direction:column;gap:8px;min-width:0}
+  .serp-item img{height:110px;width:100%;object-fit:contain;background:#fff;border-radius:6px}
+  .serp-item .serp-title{font-weight:650;font-size:13px;line-height:1.4}
+  .serp-item .serp-price{font-weight:700;font-size:16px}
+  .serp-item .serp-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:auto}
+  .serp-item a{color:var(--accent)}
+  .serp-muted{font-size:12px;color:var(--text-muted)}
 </style>
 </head>
 <body>
@@ -438,6 +451,18 @@
       <button class="btn btn-ghost" type="button" id="btnLimparConsulta">Limpar</button>
     </div>
     <div id="lookupResult" class="lookup-result" role="status" aria-live="polite" hidden></div>
+  </section>
+
+
+  <section class="serp-panel" aria-label="Pesquisa de anúncios na internet">
+    <h3>🌐 Buscar anúncios na internet — SerpAPI</h3>
+    <p class="lookup-description">Pesquisa manual no Google Shopping. Cada consulta pode consumir uma pesquisa da sua cota gratuita. Resultados são sugestões externas, não registros do PMA.</p>
+    <div class="serp-controls">
+      <input id="serpTermo" type="search" maxlength="160" placeholder="Ex.: código, marca e modelo do produto" aria-label="Produto para pesquisar na internet">
+      <button class="btn" id="serpBuscar" type="button">Buscar anúncios</button>
+    </div>
+    <div id="serpStatus" class="serp-muted" role="status" aria-live="polite">Configure o endereço do Worker no código antes de usar.</div>
+    <div id="serpResultados" class="serp-results"></div>
   </section>
 
   <div class="toolbar">
@@ -1181,6 +1206,78 @@ async function buscarPrecoML(){
     statusEl.style.color = 'var(--danger)';
   }
 }
+
+
+// CONFIGURAÇÃO: substitua pela URL publicada do seu Cloudflare Worker.
+// A chave secreta SerpAPI deve ficar APENAS no Worker, nunca neste HTML.
+const SERPAPI_WORKER_URL = 'https://pma-serpapi.juandiasnd.workers.dev';
+let serpBuscando = false;
+function serpWorkerConfigurado(){ return /^https:\/\/[^/\s]+\.workers\.dev\/?$/i.test(SERPAPI_WORKER_URL); }
+function serpPreco(valor){
+  if(typeof valor === 'number' && Number.isFinite(valor)) return valor;
+  if(typeof valor !== 'string') return NaN;
+  const str=valor.replace(/[^\d.,]/g,'');
+  if(!str) return NaN;
+  if(str.includes(',') && str.includes('.')) return Number(str.replace(/\./g,'').replace(',','.'));
+  if(str.includes(',')) return Number(str.replace(',','.'));
+  return Number(str);
+}
+function serpDomLink(link){
+  try{const u=new URL(link);return ['https:','http:'].includes(u.protocol) ? u.href : null;}catch(e){return null;}
+}
+async function pesquisarSerpAPI(){
+  const termo=document.getElementById('serpTermo').value.trim();
+  const status=document.getElementById('serpStatus');
+  const grid=document.getElementById('serpResultados');
+  if(serpBuscando) return;
+  if(termo.length<3){status.textContent='Digite pelo menos 3 caracteres para pesquisar.';return;}
+  if(!serpWorkerConfigurado()){status.textContent='Falta configurar SERPAPI_WORKER_URL com o endereço do Worker publicado.';return;}
+  serpBuscando=true;
+  const btn=document.getElementById('serpBuscar');btn.disabled=true;
+  grid.replaceChildren();status.textContent='Pesquisando anúncios no Google Shopping...';
+  try{
+    const endpoint=new URL(SERPAPI_WORKER_URL);
+    endpoint.searchParams.set('q',termo);
+    const res=await fetch(endpoint.toString(),{method:'GET',headers:{'Accept':'application/json'}});
+    const data=await res.json().catch(()=>({error:'Resposta inválida do servidor.'}));
+    if(!res.ok) throw new Error(data.error||('Erro HTTP '+res.status));
+    const anuncios=Array.isArray(data.results)?data.results:[];
+    status.textContent=anuncios.length+' anúncio(s) encontrado(s). Confira preço, disponibilidade e vendedor antes de cadastrar.';
+    if(!anuncios.length) return;
+    for(const anuncio of anuncios){
+      const link=serpDomLink(anuncio.link);
+      if(!link) continue;
+      const jaMapeados=encontrarAnuncios(link);
+      const card=document.createElement('article');card.className='serp-item';
+      if(anuncio.thumbnail && /^https:\/\//i.test(anuncio.thumbnail)){
+        const img=document.createElement('img');img.src=anuncio.thumbnail;img.alt='Imagem do anúncio';img.loading='lazy';img.referrerPolicy='no-referrer';card.append(img);
+      }
+      const titulo=document.createElement('div');titulo.className='serp-title';titulo.textContent=anuncio.title||'Produto sem título';card.append(titulo);
+      const loja=document.createElement('div');loja.className='serp-muted';loja.textContent=(anuncio.source||detectMarketplace(link))+' · '+detectMarketplace(link);card.append(loja);
+      const preco=document.createElement('div');preco.className='serp-price';const valor=serpPreco(anuncio.priceValue ?? anuncio.price);preco.textContent=Number.isFinite(valor)?fmtBRL.format(valor):(anuncio.price||'Preço não disponível');card.append(preco);
+      const situacao=document.createElement('div');situacao.className='serp-muted';situacao.textContent=jaMapeados.length ? '🟢 Já mapeado: '+jaMapeados.map(x=>x.loja||'Loja').join(', ') : '🟡 Não localizado no PMA';card.append(situacao);
+      const actions=document.createElement('div');actions.className='serp-actions';
+      const abrir=document.createElement('a');abrir.href=link;abrir.target='_blank';abrir.rel='noopener noreferrer';abrir.textContent='Ver anúncio';actions.append(abrir);
+      if(!jaMapeados.length){
+        const cadastrar=document.createElement('button');cadastrar.className='btn';cadastrar.type='button';cadastrar.textContent='+ Mapear';
+        cadastrar.addEventListener('click',()=>{
+          openModal(null);
+          document.getElementById('fLink').value=link;
+          document.getElementById('fTitulo').value=anuncio.title||'';
+          document.getElementById('fLoja').value=anuncio.source||'';
+          if(Number.isFinite(valor))document.getElementById('fPreco').value=valor.toFixed(2).replace('.',',');
+        });actions.append(cadastrar);
+      }else{
+        const editar=document.createElement('button');editar.className='btn btn-ghost';editar.type='button';editar.textContent='Ver mapeamento';
+        editar.addEventListener('click',()=>{document.getElementById('lookupLink').value=link;mostrarConsultaLink();document.getElementById('lookupLink').scrollIntoView({behavior:'smooth',block:'center'});});actions.append(editar);
+      }
+      card.append(actions);grid.append(card);
+    }
+  }catch(e){status.textContent='Falha na pesquisa: '+(e.message||'erro desconhecido')+'. Confira o Worker e a cota SerpAPI.';}
+  finally{serpBuscando=false;btn.disabled=false;}
+}
+document.getElementById('serpBuscar').addEventListener('click',pesquisarSerpAPI);
+document.getElementById('serpTermo').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();pesquisarSerpAPI();}});
 
 document.getElementById('btnBuscarPreco').addEventListener('click', buscarPrecoML);
 document.getElementById('btnConsultarLink').addEventListener('click', mostrarConsultaLink);
