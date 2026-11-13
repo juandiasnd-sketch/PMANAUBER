@@ -200,6 +200,9 @@
     box-shadow:0 1px 3px rgba(23,33,27,0.05);
   }
   table{width:100%;border-collapse:collapse;min-width:1550px;}
+  thead th[data-sort]{cursor:pointer;user-select:none;}
+  thead th[data-sort]:hover{color:var(--primary, #137a43);background:rgba(30,120,70,.07);}
+  thead th[data-sort]:focus-visible{outline:2px solid #137a43;outline-offset:-2px;}
   thead th{
     text-align:left;
     font-size:10.5px;
@@ -427,6 +430,7 @@
     <select id="filterSupervisor">
       <option value="todos">Todos os supervisores</option>
     </select>
+    <select id="filterMarketplace" aria-label="Filtrar marketplace"><option value="todos">Todos os marketplaces</option></select>
     <select id="filterPenalizado">
       <option value="todos">Todos (penalizado)</option>
       <option value="sim">Só penalizados</option>
@@ -443,15 +447,15 @@
     <table id="dataTable">
       <thead>
         <tr>
-          <th>Loja</th>
-          <th>Produto</th>
-          <th>Status</th>
-          <th>Marketplace</th>
-          <th>Supervisor</th>
+          <th data-sort="loja" tabindex="0" role="button">Loja</th>
+          <th data-sort="titulo" tabindex="0" role="button">Produto</th>
+          <th data-sort="status" tabindex="0" role="button">Status</th>
+          <th data-sort="marketplace" tabindex="0" role="button">Marketplace</th>
+          <th data-sort="supervisor" tabindex="0" role="button">Supervisor</th>
           <th>Link</th>
-          <th>PMA</th>
-          <th>Preço anunciado</th>
-          <th>% fora do PMA</th>
+          <th data-sort="pma" tabindex="0" role="button">PMA</th>
+          <th data-sort="preco" tabindex="0" role="button">Preço anunciado</th>
+          <th data-sort="pct" tabindex="0" role="button">% fora do PMA</th>
           <th>Ações</th>
         </tr>
       </thead>
@@ -669,13 +673,39 @@ async function handleDelete(id){
   showToast('Item excluído.');
 }
 
-let ordenarLojaDirecao = null; // null = sem ordenação | 'asc' | 'desc'
+let ordenarLojaDirecao = null; // compatibilidade com botão de ordenação
+let colunaOrdenada = null;
+let direcaoOrdenada = "asc";
+const collatorPMA = new Intl.Collator("pt-BR", {numeric:true,sensitivity:"base"});
+function ordenarPorColuna(coluna){
+  if(colunaOrdenada === coluna) direcaoOrdenada = direcaoOrdenada === "asc" ? "desc" : "asc";
+  else { colunaOrdenada = coluna; direcaoOrdenada = "asc"; }
+  ordenarLojaDirecao = coluna === "loja" ? direcaoOrdenada : null;
+  render();
+}
+function valorOrdenacao(it,coluna){
+  if(coluna === "marketplace") return detectMarketplace(it.link);
+  if(coluna === "status") return calc(it).fora ? "Fora do PMA" : "Dentro do PMA";
+  if(coluna === "pct") return calc(it).pctForaPMA;
+  return it[coluna] ?? "";
+}
+function atualizarIndicadoresOrdenacao(){
+  document.querySelectorAll("#dataTable thead th[data-sort]").forEach(th=>{
+    const ativo = th.dataset.sort === colunaOrdenada;
+    th.setAttribute("aria-sort", ativo ? (direcaoOrdenada === "asc" ? "ascending" : "descending") : "none");
+    th.title = ativo ? "Clique para inverter a ordem" : "Clique para ordenar esta coluna";
+    const base = th.dataset.label || th.textContent.replace(/ [▲▼]$/, "");
+    th.dataset.label = base;
+    th.textContent = base + (ativo ? (direcaoOrdenada === "asc" ? " ▲" : " ▼") : "");
+  });
+}
 
 function getFilteredItems(){
   const search = document.getElementById('searchInput').value.trim().toLowerCase();
   const filter = document.getElementById('filterStatus').value;
   const supervisorFiltro = document.getElementById('filterSupervisor').value;
   const penalizadoFiltro = document.getElementById('filterPenalizado').value;
+  const marketplaceFiltro = document.getElementById('filterMarketplace').value;
 
   const resultado = items.filter(it=>{
     const matchesSearch = !search || it.loja.toLowerCase().includes(search) || (it.titulo||'').toLowerCase().includes(search);
@@ -684,13 +714,15 @@ function getFilteredItems(){
     const matchesSupervisor = supervisorFiltro==='todos' || (it.supervisor||'') === supervisorFiltro;
     const isPenalizado = it.penalizado === 'sim';
     const matchesPenalizado = penalizadoFiltro==='todos' || (penalizadoFiltro==='sim' && isPenalizado) || (penalizadoFiltro==='nao' && !isPenalizado);
-    return matchesSearch && matchesFilter && matchesSupervisor && matchesPenalizado;
+    const matchesMarketplace = marketplaceFiltro === "todos" || detectMarketplace(it.link) === marketplaceFiltro;
+    return matchesSearch && matchesFilter && matchesSupervisor && matchesPenalizado && matchesMarketplace;
   });
 
-  if(ordenarLojaDirecao){
+  if(colunaOrdenada){
     resultado.sort((a,b)=>{
-      const cmp = a.loja.localeCompare(b.loja, 'pt-BR', { sensitivity: 'base' });
-      return ordenarLojaDirecao === 'asc' ? cmp : -cmp;
+      const av=valorOrdenacao(a,colunaOrdenada), bv=valorOrdenacao(b,colunaOrdenada);
+      const cmp=typeof av === 'number' && typeof bv === 'number' ? av-bv : collatorPMA.compare(String(av),String(bv));
+      return (direcaoOrdenada === 'asc' ? cmp : -cmp) || collatorPMA.compare(a.loja||'',b.loja||'');
     });
   }
 
@@ -698,14 +730,16 @@ function getFilteredItems(){
 }
 
 function alternarOrdenacaoLoja(){
-  if(ordenarLojaDirecao === 'asc'){
-    ordenarLojaDirecao = 'desc';
-  } else {
-    ordenarLojaDirecao = 'asc';
-  }
-  const btn = document.getElementById('btnOrdenarLoja');
-  btn.textContent = ordenarLojaDirecao === 'asc' ? '⇅ Loja (A→Z)' : '⇅ Loja (Z→A)';
-  render();
+  ordenarPorColuna('loja');
+  const btn=document.getElementById('btnOrdenarLoja');
+  btn.textContent = direcaoOrdenada === 'asc' ? '⇅ Loja (A→Z)' : '⇅ Loja (Z→A)';
+}
+function atualizarOpcoesMarketplace(){
+  const select=document.getElementById('filterMarketplace');
+  const anterior=select.value;
+  const nomes=[...new Set(items.map(it=>detectMarketplace(it.link)))].filter(nome=>nome && nome!=='—').sort((a,b)=>collatorPMA.compare(a,b));
+  select.innerHTML='<option value="todos">Todos os marketplaces</option>' + nomes.map(nome=>`<option value="${escapeAttr(nome)}">${escapeHtml(nome)}</option>`).join('');
+  select.value=nomes.includes(anterior)?anterior:'todos';
 }
 
 function atualizarOpcoesSupervisor(){
@@ -725,6 +759,8 @@ function atualizarOpcoesSupervisor(){
 
 function render(){
   atualizarOpcoesSupervisor();
+  atualizarOpcoesMarketplace();
+  atualizarIndicadoresOrdenacao();
   const filtered = getFilteredItems();
 
   const tbody = document.getElementById('tbody');
@@ -797,6 +833,8 @@ function gerarRelatorioPDF(){
   const filtroStatusTexto = filterStatus==='fora' ? 'Fora do PMA' : filterStatus==='dentro' ? 'Dentro do PMA' : 'Todos os status';
   const filterSupervisor = document.getElementById('filterSupervisor').value;
   const filtroSupervisorTexto = filterSupervisor==='todos' ? 'Todos' : filterSupervisor;
+  const filterMarketplace = document.getElementById('filterMarketplace').value;
+  const filtroMarketplaceTexto = filterMarketplace==='todos' ? 'Todos os marketplaces' : filterMarketplace;
   const filterPenalizado = document.getElementById('filterPenalizado').value;
   const filtroPenalizadoTexto = filterPenalizado==='sim' ? 'Só penalizados' : filterPenalizado==='nao' ? 'Só não penalizados' : 'Todos';
 
@@ -815,8 +853,9 @@ function gerarRelatorioPDF(){
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.setTextColor(100);
-  doc.text(`Filtro de busca: ${searchTerm || '(nenhum)'}   •   Status: ${filtroStatusTexto}   •   Supervisor: ${filtroSupervisorTexto}   •   Penalizado: ${filtroPenalizadoTexto}`, marginX, y);
-  y += 13;
+  const linhasFiltro = doc.splitTextToSize(`Busca: ${searchTerm || '(nenhum)'} | Status: ${filtroStatusTexto} | Supervisor: ${filtroSupervisorTexto} | Penalizado: ${filtroPenalizadoTexto} | Marketplace: ${filtroMarketplaceTexto}`, pageWidth - marginX*2);
+  doc.text(linhasFiltro, marginX, y);
+  y += linhasFiltro.length*12 + 3;
   doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}   •   ${filtered.length} item(ns)`, marginX, y);
   doc.setTextColor(0);
   y += 24;
@@ -827,7 +866,7 @@ function gerarRelatorioPDF(){
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text(`${idx+1}. ${it.loja}`, marginX, y);
+    doc.text(`${idx+1}. ${it.loja} | ${detectMarketplace(it.link)}`, marginX, y);
     y += 14;
 
     doc.setFont('helvetica', 'normal');
@@ -1056,6 +1095,11 @@ document.getElementById('overlay').addEventListener('click', (e)=>{ if(e.target.
 document.getElementById('searchInput').addEventListener('input', render);
 document.getElementById('filterStatus').addEventListener('change', render);
 document.getElementById('filterSupervisor').addEventListener('change', render);
+document.getElementById('filterMarketplace').addEventListener('change', render);
+document.querySelectorAll('#dataTable thead th[data-sort]').forEach(th=>{
+  th.addEventListener('click',()=>ordenarPorColuna(th.dataset.sort));
+  th.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();ordenarPorColuna(th.dataset.sort);}});
+});
 document.getElementById('filterPenalizado').addEventListener('change', render);
 document.getElementById('btnOrdenarLoja').addEventListener('click', alternarOrdenacaoLoja);
 
