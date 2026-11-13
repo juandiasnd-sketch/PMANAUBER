@@ -191,6 +191,15 @@
   .btn-ghost:hover{background:var(--surface-2);}
   .btn:disabled{opacity:0.6; cursor:not-allowed;}
 
+  .lookup-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin:0 0 18px;box-shadow:0 1px 3px rgba(23,33,27,.05)}
+  .lookup-title{font-size:16px;font-weight:700;margin-bottom:5px}
+  .lookup-description{color:var(--text-muted);font-size:12px;margin:0 0 12px}
+  .lookup-controls{display:flex;gap:9px;flex-wrap:wrap}
+  .lookup-controls input{flex:1;min-width:230px;padding:11px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface);color:var(--text)}
+  .lookup-result{margin-top:12px;border-radius:8px;padding:13px;background:var(--surface-2);font-size:13px;line-height:1.6}
+  .lookup-result[hidden]{display:none}
+  .lookup-result a{color:var(--accent-dark);overflow-wrap:anywhere}
+  .lookup-result button{margin-top:8px}
   /* Table */
   .table-wrap{
     background:var(--surface);
@@ -420,6 +429,17 @@
     </div>
   </div>
 
+  <section class="lookup-panel" aria-label="Consultar anúncio cadastrado">
+    <div class="lookup-title">🔎 Consultar anúncio por link</div>
+    <p class="lookup-description">Cole o link de qualquer marketplace para verificar se o anúncio já está mapeado no PMA.</p>
+    <div class="lookup-controls">
+      <input type="url" id="lookupLink" placeholder="Cole aqui o link do anúncio (Mercado Livre, Shopee, KaBuM...)" aria-label="Link do anúncio para consultar">
+      <button class="btn" type="button" id="btnConsultarLink">Consultar</button>
+      <button class="btn btn-ghost" type="button" id="btnLimparConsulta">Limpar</button>
+    </div>
+    <div id="lookupResult" class="lookup-result" role="status" aria-live="polite" hidden></div>
+  </section>
+
   <div class="toolbar">
     <input type="text" id="searchInput" placeholder="Buscar loja ou produto...">
     <select id="filterStatus">
@@ -603,6 +623,7 @@ async function saveItems(){
 onSnapshot(itemsDocRef, (snap)=>{
   items = snap.exists() && Array.isArray(snap.data().list) ? snap.data().list : [];
   render();
+  if(document.getElementById('lookupLink').value.trim() && !document.getElementById('lookupResult').hidden) mostrarConsultaLink();
 }, (err)=>{
   showToast('Não foi possível conectar ao Firebase. Verifique a configuração.');
 });
@@ -651,6 +672,14 @@ async function handleSave(){
 
   // busca a versão mais recente antes de salvar, para não sobrescrever o que outra pessoa acabou de adicionar
   items = await fetchLatestItems();
+
+  const duplicados = encontrarAnuncios(link, editingId);
+  if(duplicados.length){
+    const lojas = duplicados.map(it=>it.loja||'Loja não informada').join(', ');
+    errEl.textContent = 'Este anúncio já está mapeado no PMA: ' + lojas + '. Abra a consulta por link para localizar e editar o registro existente.';
+    errEl.style.display = 'block';
+    return;
+  }
 
   if(editingId){
     const idx = items.findIndex(i=>i.id===editingId);
@@ -1007,6 +1036,75 @@ function extractMLItemId(link){
   return m ? ('MLB' + m[1]) : null;
 }
 
+// Identifica anúncios equivalentes sem depender de parâmetros de rastreamento.
+function anuncioKey(link){
+  if(!link || !String(link).trim()) return null;
+  let url;
+  try { url = new URL(String(link).trim()); }
+  catch(e){ try { url = new URL('https://' + String(link).trim()); } catch(e2){ return null; } }
+  if(!['http:','https:'].includes(url.protocol)) return null;
+  const host = url.hostname.toLowerCase().replace(/^www\./,'').replace(/^m\./,'');
+  let path = decodeURIComponent(url.pathname).replace(/\/+$/,'').toLowerCase();
+  const market = detectMarketplace(url.href);
+  if(market === 'Mercado Livre'){
+    // Prioriza o identificador do anúncio individual (wid/item_id), quando disponível.
+    const id = extractMLItemId(url.href);
+    if(id) return 'mercadolivre:id:' + id;
+  }
+  if(market === 'Shopee'){
+    const match = path.match(/(?:^|[./])i\.(\d+)\.(\d+)(?:$|[/?#])/i) || path.match(/product\/(\d+)\/(\d+)/i);
+    if(match) return 'shopee:shop:' + match[1] + ':item:' + match[2];
+  }
+  if(market === 'Amazon'){
+    const match = path.match(/\/(?:dp|gp\/product)\/([a-z0-9]{10})(?:\/|$)/i);
+    if(match) return 'amazon:asin:' + match[1].toUpperCase();
+  }
+  if(market === 'Kabum'){
+    const match = path.match(/\/produto\/(\d+)(?:\/|$)/i);
+    if(match) return 'kabum:produto:' + match[1];
+  }
+  if(market === 'Magalu'){
+    const match = path.match(/\/p\/([^/]+)(?:\/|$)/i);
+    if(match) return 'magalu:produto:' + match[1];
+  }
+  // Para outros marketplaces, compara domínio e caminho; parâmetros de rastreio são ignorados.
+  // Sem identificador de anúncio, a equivalência não é garantida.
+  return 'url:' + host + path;
+}
+function encontrarAnuncios(link, excluirId=null){
+  const chave = anuncioKey(link);
+  if(!chave) return [];
+  return items.filter(it=>it.id!==excluirId && anuncioKey(it.link)===chave);
+}
+function mostrarConsultaLink(){
+  const campo=document.getElementById('lookupLink');
+  const painel=document.getElementById('lookupResult');
+  const link=campo.value.trim();
+  painel.hidden=false;
+  if(!link){painel.textContent='Cole um link para consultar.';return;}
+  let url;
+  try{url=new URL(link);}catch(e){painel.textContent='Link inválido. Cole o endereço completo começando com https://';return;}
+  if(!['https:','http:'].includes(url.protocol)){
+    painel.textContent='Use um link HTTP ou HTTPS válido.';return;
+  }
+  const encontrados=encontrarAnuncios(link);
+  const marketplace=detectMarketplace(link);
+  if(!encontrados.length){
+    painel.innerHTML='<strong>🟡 Anúncio não encontrado no PMA.</strong><div>Marketplace: '+escapeHtml(marketplace)+'. Nenhum registro correspondente foi localizado. Isso não confirma que o anúncio não exista na internet.</div><button type="button" class="btn" id="lookupCadastrar">+ Cadastrar este anúncio</button>';
+    document.getElementById('lookupCadastrar').addEventListener('click',()=>{
+      openModal(null);
+      document.getElementById('fLink').value=link;
+    });
+    return;
+  }
+  painel.innerHTML='<strong>🟢 Anúncio já mapeado no PMA ('+encontrados.length+' registro(s)).</strong><div>Marketplace: '+escapeHtml(marketplace)+'</div>' +
+    encontrados.map(it=>'<div style="margin-top:9px;padding-top:8px;border-top:1px solid var(--border)"><strong>'+escapeHtml(it.loja||'Loja não informada')+'</strong> — '+escapeHtml(it.titulo||'Produto sem título')+'<div>Supervisor: '+escapeHtml(it.supervisor||'—')+' | PMA: '+fmtBRL.format(it.pma)+' | Anunciado: '+fmtBRL.format(it.preco)+'</div><a href="'+escapeAttr(it.link)+'" target="_blank" rel="noopener noreferrer">Abrir anúncio cadastrado ↗</a> <button class="btn btn-ghost" type="button" data-lookup-edit="'+escapeAttr(it.id)+'">Editar registro</button></div>').join('');
+  painel.querySelectorAll('[data-lookup-edit]').forEach(btn=>btn.addEventListener('click',()=>{
+    const it=items.find(i=>i.id===btn.dataset.lookupEdit);
+    if(it)openModal(it);
+  }));
+}
+
 async function buscarItemML(itemId){
   const apiUrl = `https://api.mercadolibre.com/items/${itemId}`;
 
@@ -1085,6 +1183,12 @@ async function buscarPrecoML(){
 }
 
 document.getElementById('btnBuscarPreco').addEventListener('click', buscarPrecoML);
+document.getElementById('btnConsultarLink').addEventListener('click', mostrarConsultaLink);
+document.getElementById('lookupLink').addEventListener('keydown',e=>{if(e.key==='Enter')mostrarConsultaLink();});
+document.getElementById('btnLimparConsulta').addEventListener('click',()=>{
+  document.getElementById('lookupLink').value='';
+  document.getElementById('lookupResult').hidden=true;
+});
 
 document.getElementById('btnNovo').addEventListener('click', ()=>openModal(null));
 document.getElementById('btnCancelar').addEventListener('click', closeModal);
