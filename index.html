@@ -1195,7 +1195,8 @@ document.getElementById('btnCancelar').addEventListener('click', closeModal);
 document.getElementById('btnSalvar').addEventListener('click', handleSave);
 document.getElementById('btnRelatorio').addEventListener('click', gerarRelatorioPDF);
 document.getElementById('btnAtualizar').addEventListener('click', ()=>{ loadItems(); showToast('Lista atualizada.'); });
-document.getElementById('overlay').addEventListener('click', (e)=>{ if(e.target.id==='overlay') closeModal(); });
+// Clicar fora da janela de cadastro nao fecha o formulario nem descarta os dados.
+// O formulario so fecha ao clicar em Cancelar ou apos salvar com sucesso.
 document.getElementById('searchInput').addEventListener('input', render);
 document.getElementById('filterStatus').addEventListener('change', render);
 document.getElementById('filterSupervisor').addEventListener('change', render);
